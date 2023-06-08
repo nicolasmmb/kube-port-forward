@@ -7,49 +7,45 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/nicolasmmb/kube-port-forward/config"
 	"github.com/nicolasmmb/kube-port-forward/models"
 	"github.com/nicolasmmb/kube-port-forward/utils/check"
 	"github.com/nicolasmmb/kube-port-forward/utils/prompt"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	pfclt "k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
-	"k8s.io/kubectl/pkg/cmd/portforward"
 )
 
 func main() {
 
 	cfg := models.BaseConfig{}
 	cfg.LoadConfig()
-	cfg.PrintConfig()
 
-	kubeConfig, kubeClient, err := ConfigureKubernetesSession(cfg.Kubernetes.ConfigFile.Directory)
-	check.Error(err, true, true)
+	kubeConfig, kubeClient := config.CreateKubernetesSession(cfg.Kubernetes.ConfigFile.Directory)
 
+	// Namespaces
 	choicesNamespace := []string{}
 	for _, terminal := range cfg.Kubernetes.Namespaces {
 		choicesNamespace = append(choicesNamespace, terminal.Name)
 	}
-
 	_, selectedNamespace, err := prompt.Select("Select the Namespace", choicesNamespace)
 	check.Error(err, true, true)
 
+	// Pods
 	pods, err := kubeClient.CoreV1().Pods(selectedNamespace).List(context.Background(), v1.ListOptions{})
 	check.Error(err, true, true)
 
 	podsChoices := []string{}
-
 	for _, pod := range pods.Items {
 		podsChoices = append(podsChoices, pod.Name)
 	}
-
 	selectedPodIndex, _, err := prompt.Select("Select the Pod", podsChoices)
 	check.Error(err, true, true)
 
 	actualPod := pods.Items[selectedPodIndex]
 
+	// Ports
 	choicesPorts := []string{}
 	for _, container := range actualPod.Spec.Containers {
 		for _, port := range container.Ports {
@@ -63,23 +59,19 @@ func main() {
 
 	prompt.Confirm("Start PortForward", true, "y")
 
-	pf := portforward.PortForwardOptions{}
+	// PortForward
+	pf := config.PortFowardConfig(
+		"0.0.0.0",
+		selectedPort,
+		kubeConfig,
+		kubeClient,
+	)
 
-	pf.Address = []string{"0.0.0.0"}
-	pf.Ports = []string{selectedPort + ":" + selectedPort}
-	pf.PodName = actualPod.Name
-	pf.Namespace = actualPod.Namespace
-	pf.ReadyChannel = make(chan struct{}, 1)
-	pf.StopChannel = make(chan struct{}, 1)
-	pf.PodClient = kubeClient.CoreV1()
-
-	kubeRequest := kubeClient.RESTClient().Post().
-		Prefix("api/v1").
-		Resource("pods").
-		SubResource("portforward").
-		Namespace(actualPod.Namespace).
-		Name(actualPod.Name).
-		URL()
+	kubeRequest := KubeRequestPortForward(
+		kubeClient,
+		actualPod.Name,
+		actualPod.Namespace,
+	)
 
 	transport, upgrader, err := spdy.RoundTripperFor(kubeConfig)
 	check.Error(err, true, true)
@@ -103,13 +95,15 @@ func main() {
 
 }
 
-func ConfigureKubernetesSession(kubeconfigPath string) (*rest.Config, *kubernetes.Clientset, error) {
-
-	kubeConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
-	check.Error(err, true, true)
-
-	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
-	check.Error(err, true, true)
-
-	return kubeConfig, kubeClient, err
+func KubeRequestPortForward(
+	client *kubernetes.Clientset,
+	podName string,
+	podNamespace string,
+) *url.URL {
+	return client.RESTClient().Post().
+		Prefix("api/v1").
+		Resource("pods").
+		SubResource("portforward").
+		Namespace(podNamespace).
+		Name(podName).URL()
 }
