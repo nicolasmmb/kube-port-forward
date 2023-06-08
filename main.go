@@ -49,7 +49,6 @@ func main() {
 	choicesPorts := []string{}
 	for _, container := range actualPod.Spec.Containers {
 		for _, port := range container.Ports {
-
 			choicesPorts = append(choicesPorts, strconv.Itoa(int(port.ContainerPort)))
 		}
 	}
