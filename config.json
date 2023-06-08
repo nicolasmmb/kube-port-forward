@@ -2,17 +2,11 @@
     "kubernetes": {
         "namespaces": [
             {
-                "name": "aloque"
-            },
-            {
-                "name": "aloque-alpha"
-            },
-            {
-                "name": "aloque-alpha-magenta"
+                "name": "default"
             }
         ],
         "config_file": {
-            "directory": "/Users/nicolas/.kube/config"
+            "directory": ".../.kube/config"
         }
     }
 }
