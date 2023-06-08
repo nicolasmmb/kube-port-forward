@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 
-	"github.com/manifoldco/promptui"
 	"github.com/nicolasmmb/kube-port-forward/models"
 	"github.com/nicolasmmb/kube-port-forward/utils/check"
+	"github.com/nicolasmmb/kube-port-forward/utils/prompt"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -20,15 +21,11 @@ import (
 
 func main() {
 
-	path, err := os.UserHomeDir()
-	check.Error(err, true, true)
-	path += "/.kube/config"
-
 	cfg := models.BaseConfig{}
 	cfg.LoadConfig()
 	cfg.PrintConfig()
 
-	kubeConfig, kubeClient, err := ConfigureKubernetesSession(path)
+	kubeConfig, kubeClient, err := ConfigureKubernetesSession(cfg.Kubernetes.ConfigFile.Directory)
 	check.Error(err, true, true)
 
 	choicesNamespace := []string{}
@@ -36,16 +33,10 @@ func main() {
 		choicesNamespace = append(choicesNamespace, terminal.Name)
 	}
 
-	promptNamespace := promptui.Select{
-		Label: "Selecione o namespace",
-		Items: choicesNamespace,
-		Size:  10,
-	}
-
-	_, resultNamespace, err := promptNamespace.Run()
+	_, selectedNamespace, err := prompt.Select("Select the Namespace", choicesNamespace)
 	check.Error(err, true, true)
 
-	pods, err := kubeClient.CoreV1().Pods(resultNamespace).List(context.Background(), v1.ListOptions{})
+	pods, err := kubeClient.CoreV1().Pods(selectedNamespace).List(context.Background(), v1.ListOptions{})
 	check.Error(err, true, true)
 
 	podsChoices := []string{}
@@ -54,46 +45,23 @@ func main() {
 		podsChoices = append(podsChoices, pod.Name)
 	}
 
-	promptPod := promptui.Select{
-		Label: "Selecione o pod",
-		Items: podsChoices,
-		Size:  10,
-	}
-
-	podSelectedIndex, _, err := promptPod.Run()
+	selectedPodIndex, _, err := prompt.Select("Select the Pod", podsChoices)
 	check.Error(err, true, true)
 
-	actualPod := pods.Items[podSelectedIndex]
+	actualPod := pods.Items[selectedPodIndex]
 
-	allPorts := []int32{8000}
+	choicesPorts := []string{}
 	for _, container := range actualPod.Spec.Containers {
 		for _, port := range container.Ports {
-			allPorts = append(allPorts, port.ContainerPort)
+
+			choicesPorts = append(choicesPorts, strconv.Itoa(int(port.ContainerPort)))
 		}
 	}
 
-	// if len(allPorts) == 0 {
-	// 	fmt.Println("Não há portas disponíveis")
-	// 	os.Exit(1)
-	// }
-
-	promptPort := promptui.Select{
-		Label: "Selecione a porta",
-		Items: allPorts,
-		Size:  10,
-	}
-
-	_, selectedPort, err := promptPort.Run()
+	_, selectedPort, err := prompt.Select("Select the Port", choicesPorts)
 	check.Error(err, true, true)
 
-	promptPortFoward := promptui.Prompt{
-		Label:     "Deseja iniciar o port foward",
-		IsConfirm: true,
-		Default:   "y",
-	}
-
-	_, err = promptPortFoward.Run()
-	check.Error(err, true, true)
+	prompt.Confirm("Start PortForward", true, "y")
 
 	pf := portforward.PortForwardOptions{}
 
